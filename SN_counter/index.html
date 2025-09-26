@@ -1,1 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Usage Counter</title>
+  <style>
+    :root {
+      --bg: #0f1115;       /* dark, neutral */
+      --panel: #151822;    /* card bg */
+      --text: #e6e7ea;     /* primary text */
+      --muted: #a9afbd;    /* muted text */
+      --accent: #4c8bf5;   /* subtle accent */
+      --danger: #ff5d5d;   /* errors */
+      --warn: #f5b64c;     /* warnings */
+      --ok: #58d68d;       /* not used for success lines */
+      --ring: rgba(76, 139, 245, 0.35);
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: radial-gradient(1200px 700px at 30% -10%, #182032 0%, var(--bg) 55%);
+      color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      display: grid;
+      place-items: center;
+    }
+    .card {
+      width: min(680px, 92vw);
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      padding: 22px 22px 18px;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 20px;
+      letter-spacing: 0.2px;
+      font-weight: 650;
+    }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .stack { display: grid; gap: 10px; }
+    .grow { flex: 1 1 220px; }
+
+    input[type="text"] {
+      background: #0e1220;
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+      width: 100%;
+      transition: box-shadow .15s ease, border-color .15s ease;
+    }
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px var(--ring);
+    }
+    .btn {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: #0e1220;
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: transform .04s ease, opacity .15s ease, border-color .15s ease;
+      user-select: none;
+    }
+    .btn:hover { border-color: rgba(255,255,255,0.22); }
+    .btn:active { transform: translateY(1px); }
+    .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+    .btn.primary { background: linear-gradient(180deg, #1a2237, #10182a); border-color: rgba(255,255,255,0.18); }
+    .btn.danger { background: linear-gradient(180deg, #2a1a1a, #1a0f0f); border-color: rgba(255,255,255,0.18); }
+
+    .count {
+      font-variant-numeric: tabular-nums;
+      font-size: 44px;
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 12px 0 2px;
+    }
+    .label { color: var(--muted); font-size: 13px; margin-top: -2px; }
+
+    .status { margin-top: 12px; font-size: 14px; min-height: 22px; }
+    .status.warn { color: var(--warn); }
+    .status.error { color: var(--danger); }
+    .status.neutral { color: var(--muted); }
+
+    footer { margin-top: 12px; color: var(--muted); font-size: 12px; opacity: .9; }
+    code.small { background: #0e1220; padding: 2px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); }
+  </style>
+</head>
+<body>
+  <main class="card" role="region" aria-label="Usage Counter">
+    <h1>Usage Counter</h1>
+
+    <div class="stack" style="margin-top:6px;">
+      <div class="row">
+        <input id="nameInput" class="grow" type="text" inputmode="latin" autocomplete="off" placeholder="Enter a name…" aria-label="Name" />
+        <button id="startBtn" class="btn primary" title="Save name and start">Start</button>
+      </div>
+
+      <div class="row">
+        <button id="incBtn" class="btn" disabled title="Increment then fetch">Increment</button>
+        <button id="refreshBtn" class="btn" disabled title="Fetch current count">Refresh</button>
+        <button id="forgetBtn" class="btn danger" disabled title="Forget the name and disable actions">Forget</button>
+      </div>
+
+      <div>
+        <div class="label">Current count</div>
+        <div id="count" class="count" aria-live="polite">—</div>
+      </div>
+
+      <div id="status" class="status neutral" aria-live="polite">Ready</div>
+    </div>
+
+    <footer>
+      <span>Single-file app. No storage. Only warnings & errors are shown.</span>
+    </footer>
+  </main>
+
+  <script>
+    (function() {
+      const POST_URL = 'https://api.magiqspark.com/counter/';
+      const GET_URL  = 'https://api.magiqspark.com/counter/';
+
+      const el = {
+        name: document.getElementById('nameInput'),
+        start: document.getElementById('startBtn'),
+        inc: document.getElementById('incBtn'),
+        refresh: document.getElementById('refreshBtn'),
+        forget: document.getElementById('forgetBtn'),
+        count: document.getElementById('count'),
+        status: document.getElementById('status'),
+      };
+
+      let currentName = '';
+      let busy = false;
+
+      function setStatus(msg, kind = 'neutral') {
+        el.status.textContent = msg || '';
+        el.status.className = 'status ' + (kind || 'neutral');
+      }
+
+      function setCount(val) {
+        el.count.textContent = (Number.isFinite(val) ? String(val) : '—');
+      }
+
+      function updateButtons() {
+        const enabled = Boolean(currentName);
+        el.inc.disabled = !enabled || busy;
+        el.refresh.disabled = !enabled || busy;
+        el.forget.disabled = !enabled || busy;
+        el.start.disabled = busy;
+        el.name.disabled = busy; // allow editing when not busy
+      }
+
+      function requireName() {
+        const name = (el.name.value || '').trim();
+        if (!name) {
+          setStatus('Please enter a name first.', 'warn');
+          return null;
+        }
+        return name;
+      }
+
+      async function postIncrement(name) {
+        const res = await fetch(POST_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        if (!res.ok) {
+          const text = await safeText(res);
+          throw new Error(`POST failed (${res.status}). ${text}`);
+        }
+        // Intentionally ignore any success body to avoid success logs in UI.
+      }
+
+      async function getCount(name) {
+        const url = new URL(GET_URL);
+        url.searchParams.set('name', name);
+        const res = await fetch(url.toString(), { method: 'GET' });
+        if (!res.ok) {
+          const text = await safeText(res);
+          throw new Error(`GET failed (${res.status}). ${text}`);
+        }
+        const data = await safeJson(res);
+        // Expect data like { name: string, count: number } but be defensive.
+        const c = (data && typeof data.count === 'number') ? data.count : NaN;
+        return c;
+      }
+
+      async function safeJson(res) {
+        try { return await res.json(); } catch { return {}; }
+      }
+      async function safeText(res) {
+        try { return (await res.text()).slice(0, 200); } catch { return ''; }
+      }
+
+      async function doPostThenGet(name) {
+        try {
+          busy = true; updateButtons(); setStatus('Working…');
+          await postIncrement(name);
+          const count = await getCount(name);
+          setCount(count);
+          setStatus(''); // no success messages
+        } catch (err) {
+          setStatus(err && err.message ? String(err.message) : 'Unexpected error.', 'error');
+        } finally {
+          busy = false; updateButtons();
+        }
+      }
+
+      async function doGetOnly(name) {
+        try {
+          busy = true; updateButtons(); setStatus('Working…');
+          const count = await getCount(name);
+          setCount(count);
+          setStatus(''); // suppress success lines
+        } catch (err) {
+          setStatus(err && err.message ? String(err.message) : 'Unexpected error.', 'error');
+        } finally {
+          busy = false; updateButtons();
+        }
+      }
+
+      function startWithName(name) {
+        currentName = name;
+        updateButtons();
+        // Immediately POST then GET as specified
+        doPostThenGet(currentName);
+      }
+
+      // Event wiring
+      el.start.addEventListener('click', () => {
+        const name = requireName();
+        if (!name) return;
+        startWithName(name);
+      });
+
+      el.name.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          el.start.click();
+        }
+      });
+
+      el.inc.addEventListener('click', () => {
+        if (!currentName) { setStatus('Please enter a name first.', 'warn'); return; }
+        doPostThenGet(currentName);
+      });
+
+      el.refresh.addEventListener('click', () => {
+        if (!currentName) { setStatus('Please enter a name first.', 'warn'); return; }
+        doGetOnly(currentName);
+      });
+
+      el.forget.addEventListener('click', () => {
+        currentName = '';
+        setCount(NaN);
+        setStatus('Name cleared.'); // status, not success log
+        updateButtons();
+        el.name.focus();
+      });
+
+      // Initial state & auto-start via ?name=foo
+      function initFromQuery() {
+        const params = new URLSearchParams(location.search);
+        const qname = (params.get('name') || '').trim();
+        if (qname) {
+          el.name.value = qname;
+          startWithName(qname);
+        } else {
+          updateButtons();
+        }
+      }
+
+      initFromQuery();
+    })();
+  </script>
+</body>
+</html>
 
